@@ -305,11 +305,7 @@
         }
         
         function isHoliday(dateStr) { return holidays.some(h => h.date === dateStr); }
-        
-        function getHolidayDescription(dateStr) {
-            const holiday = holidays.find(h => h.date === dateStr);
-            return holiday ? holiday.description : null;
-        }
+        function getHolidayDescription(dateStr) { const h = holidays.find(h => h.date === dateStr); return h ? h.description : null; }
         
         function getShiftForAgent(agentCode, dateStr) {
             const monthKey = dateStr.substring(0, 7);
@@ -322,18 +318,10 @@
         function calculateTheoreticalShift(agentCode, dateStr) {
             const agent = agents.find(a => a.code === agentCode);
             if (!agent || agent.statut !== 'actif') return '-';
-            
             const date = new Date(dateStr);
             const group = agent.groupe;
             const daysSinceStart = Math.floor((date - DATE_AFFECTATION_BASE) / (1000 * 60 * 60 * 24));
-            
-            let groupOffset = 0;
-            if (group === 'A') groupOffset = 0;
-            else if (group === 'B') groupOffset = 2;
-            else if (group === 'C') groupOffset = 4;
-            else if (group === 'D') groupOffset = 6;
-            else return '-';
-            
+            let groupOffset = group === 'A' ? 0 : group === 'B' ? 2 : group === 'C' ? 4 : group === 'D' ? 6 : 0;
             const cycleDay = (daysSinceStart + groupOffset) % 8;
             if (cycleDay === 0 || cycleDay === 1) return '1';
             if (cycleDay === 2 || cycleDay === 3) return '2';
@@ -341,192 +329,160 @@
             return 'R';
         }
         
-        // ==================== MODIFICATION DE SHIFT ====================
-        function showShiftModification(agentCode, dateStr, currentShift) {
-            const agent = agents.find(a => a.code === agentCode);
+        // ==================== GESTION DES AGENTS ====================
+        function displayAgentsList() {
+            let html = `
+                <div>
+                    <h3>📋 Liste des Agents (${agents.length})</h3>
+                    <input type="text" id="searchAgent" placeholder="🔍 Rechercher..." style="width:100%; padding:10px; margin-bottom:15px; border-radius:8px; border:none; background:#34495e; color:white;" onkeyup="filterAgents()">
+                    <div id="agentsListContainer">
+                        ${generateAgentsTable(agents.filter(a => a.statut === 'actif'))}
+                    </div>
+                </div>
+            `;
+            openPopup("📋 Liste des Agents", html, `
+                <button class="btn btn-primary" onclick="showAddAgentForm()">➕ Ajouter</button>
+                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
+            `);
+        }
+        
+        function generateAgentsTable(agentsList) {
+            if (agentsList.length === 0) return '<p style="text-align:center;">Aucun agent trouvé</p>';
+            return `
+                <table style="width:100%;">
+                    <thead><tr><th>Code</th><th>Nom</th><th>Prénom</th><th>Groupe</th><th>Tel</th><th>Statut</th><th>Actions</th></tr></thead>
+                    <tbody>
+                        ${agentsList.map(a => `
+                            <tr>
+                                <td><strong>${a.code}</strong></td>
+                                <td>${a.nom}</td>
+                                <td>${a.prenom}</td>
+                                <td>${a.groupe}</td>
+                                <td>${a.tel || '-'}</td>
+                                <td><span class="status-badge status-${a.statut}">${a.statut === 'actif' ? 'Actif' : 'Inactif'}</span></td>
+                                <td class="action-buttons">
+                                    <button class="action-btn action-view" onclick="showAgentDetails('${a.code}')">👁️</button>
+                                    <button class="action-btn action-edit" onclick="showEditAgent('${a.code}')">✏️</button>
+                                    <button class="action-btn action-delete" onclick="deleteAgent('${a.code}')">🗑️</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+        
+        function filterAgents() {
+            const search = document.getElementById('searchAgent').value.toLowerCase();
+            const filtered = agents.filter(a => 
+                a.nom.toLowerCase().includes(search) || a.prenom.toLowerCase().includes(search) || a.code.toLowerCase().includes(search)
+            );
+            document.getElementById('agentsListContainer').innerHTML = generateAgentsTable(filtered);
+        }
+        
+        function showAgentDetails(code) {
+            const agent = agents.find(a => a.code === code);
             if (!agent) return;
-            
+            let html = `<div><div style="background:#34495e; padding:15px; border-radius:10px;">
+                        <strong>Code:</strong> ${agent.code}<br>
+                        <strong>Nom:</strong> ${agent.nom} ${agent.prenom}<br>
+                        <strong>Groupe:</strong> ${agent.groupe}<br>
+                        <strong>Poste:</strong> ${agent.poste || '-'}<br>
+                        <strong>Tél:</strong> ${agent.tel || '-'}<br>
+                        <strong>Matricule:</strong> ${agent.matricule || '-'}<br>
+                        <strong>Date entrée:</strong> ${agent.date_entree || '-'}<br>
+                        <strong>Statut:</strong> <span class="status-badge status-${agent.statut}">${agent.statut === 'actif' ? 'Actif' : 'Inactif'}</span>
+                    </div></div>`;
+            openPopup(`👤 ${agent.nom} ${agent.prenom}`, html, `
+                <button class="btn btn-primary" onclick="showEditAgent('${code}')">✏️ Modifier</button>
+                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
+            `);
+        }
+        
+        function showAddAgentForm() {
             let html = `
-                <div>
-                    <h3>✏️ Modifier le Shift</h3>
-                    <p><strong>Agent:</strong> ${agent.nom} ${agent.prenom} (${agent.code})</p>
-                    <p><strong>Date:</strong> ${dateStr}</p>
-                    <p><strong>Shift actuel:</strong> <span style="background:${SHIFT_COLORS[currentShift]}; padding:2px 8px; border-radius:12px;">${currentShift} - ${SHIFT_LABELS[currentShift]}</span></p>
-                    <div class="form-group"><label>Nouveau shift</label>
-                        <select id="newShiftSelect" class="form-input">
-                            ${Object.entries(SHIFT_LABELS).map(([code, label]) => `<option value="${code}" ${code === currentShift ? 'selected' : ''}>${code} - ${label}</option>`).join('')}
-                        </select>
-                    </div>
-                    <div class="form-group"><label>Raison du changement</label>
-                        <textarea id="shiftReason" rows="2" placeholder="Ex: Remplacement, réunion, etc..."></textarea>
-                    </div>
-                </div>
+                <form id="addAgentForm" onsubmit="return false;">
+                    <div class="form-group"><label>Code *</label><input type="text" id="newCode" required placeholder="Ex: AG001"></div>
+                    <div class="form-group"><label>Nom *</label><input type="text" id="newNom" required></div>
+                    <div class="form-group"><label>Prénom *</label><input type="text" id="newPrenom" required></div>
+                    <div class="form-group"><label>Groupe</label><select id="newGroupe"><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></div>
+                    <div class="form-group"><label>Téléphone</label><input type="tel" id="newTel"></div>
+                    <div class="form-group"><label>Poste</label><input type="text" id="newPoste"></div>
+                    <div class="form-group"><label>Matricule</label><input type="text" id="newMatricule"></div>
+                </form>
             `;
-            
-            openPopup(`✏️ Modifier Shift - ${agent.code}`, html, `
-                <button class="btn btn-primary" onclick="saveShiftModification('${agentCode}', '${dateStr}')">💾 Enregistrer</button>
+            openPopup("➕ Ajouter Agent", html, `
+                <button class="btn btn-primary" onclick="addAgent()">💾 Enregistrer</button>
                 <button class="btn btn-secondary" onclick="closePopup()">Annuler</button>
             `);
         }
         
-        function saveShiftModification(agentCode, dateStr) {
-            const newShift = document.getElementById('newShiftSelect').value;
-            const reason = document.getElementById('shiftReason').value;
-            const oldShift = getShiftForAgent(agentCode, dateStr);
-            
-            const monthKey = dateStr.substring(0, 7);
-            if (!planningData[monthKey]) planningData[monthKey] = {};
-            if (!planningData[monthKey][agentCode]) planningData[monthKey][agentCode] = {};
-            
-            planningData[monthKey][agentCode][dateStr] = {
-                shift: newShift,
-                type: 'modification_manuelle',
-                old_shift: oldShift,
-                reason: reason,
-                modified_at: new Date().toISOString(),
-                modified_by: 'Admin'
-            };
-            
-            shiftHistory.push({
-                agent_code: agentCode,
-                date: dateStr,
-                old_shift: oldShift,
-                new_shift: newShift,
-                reason: reason,
-                modified_at: new Date().toISOString()
+        function addAgent() {
+            const code = document.getElementById('newCode').value.toUpperCase();
+            const nom = document.getElementById('newNom').value;
+            const prenom = document.getElementById('newPrenom').value;
+            if (!code || !nom || !prenom) { showSnackbar("Code, Nom et Prénom obligatoires"); return; }
+            if (agents.find(a => a.code === code)) { showSnackbar(`Code ${code} existe déjà`); return; }
+            agents.push({
+                code, nom, prenom, groupe: document.getElementById('newGroupe').value,
+                tel: document.getElementById('newTel').value || '', poste: document.getElementById('newPoste').value || '',
+                matricule: document.getElementById('newMatricule').value || '', statut: 'actif', date_entree: new Date().toISOString().split('T')[0]
             });
-            
             saveToLocalStorage();
-            showSnackbar(`✅ Shift modifié pour ${agentCode} le ${dateStr} : ${oldShift} → ${newShift}`);
+            showSnackbar(`✅ Agent ${code} ajouté`);
             closePopup();
-            
-            const currentPopup = document.querySelector('.popup-header h2');
-            if (currentPopup && currentPopup.textContent.includes('Planning')) {
-                refreshCurrentPlanning();
-            }
+            displayAgentsList();
         }
         
-        // ==================== ÉCHANGE DE SHIFT ====================
-        function showShiftExchange() {
-            const activeAgents = agents.filter(a => a.statut === 'actif');
-            
+        function showEditAgent(code) {
+            const agent = agents.find(a => a.code === code);
+            if (!agent) return;
             let html = `
-                <div>
-                    <h3>🔄 Échanger les Shifts</h3>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                        <div>
-                            <h4>Agent 1</h4>
-                            <div class="form-group"><label>Agent</label>
-                                <select id="exchangeAgent1" class="form-input" onchange="updateExchangeShiftInfo()">
-                                    ${activeAgents.map(a => `<option value="${a.code}">${a.nom} ${a.prenom} (${a.code})</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="form-group"><label>Date</label>
-                                <input type="date" id="exchangeDate1" class="form-input" onchange="updateExchangeShiftInfo()">
-                            </div>
-                            <div id="shiftInfo1" style="background:#34495e; padding:10px; border-radius:8px; margin-top:10px;">
-                                Shift: <strong id="shift1Value">-</strong>
-                            </div>
-                        </div>
-                        <div>
-                            <h4>Agent 2</h4>
-                            <div class="form-group"><label>Agent</label>
-                                <select id="exchangeAgent2" class="form-input" onchange="updateExchangeShiftInfo()">
-                                    ${activeAgents.map(a => `<option value="${a.code}">${a.nom} ${a.prenom} (${a.code})</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="form-group"><label>Date</label>
-                                <input type="date" id="exchangeDate2" class="form-input" onchange="updateExchangeShiftInfo()">
-                            </div>
-                            <div id="shiftInfo2" style="background:#34495e; padding:10px; border-radius:8px; margin-top:10px;">
-                                Shift: <strong id="shift2Value">-</strong>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group"><label>Raison de l'échange</label>
-                        <textarea id="exchangeReason" rows="2" placeholder="Ex: Contrainte personnelle, remplacement..."></textarea>
-                    </div>
-                </div>
+                <form id="editAgentForm">
+                    <div class="form-group"><label>Code</label><input type="text" value="${agent.code}" readonly style="background:#1a2a3a;"></div>
+                    <div class="form-group"><label>Nom</label><input type="text" id="editNom" value="${agent.nom}" required></div>
+                    <div class="form-group"><label>Prénom</label><input type="text" id="editPrenom" value="${agent.prenom}" required></div>
+                    <div class="form-group"><label>Groupe</label><select id="editGroupe"><option ${agent.groupe==='A'?'selected':''}>A</option><option ${agent.groupe==='B'?'selected':''}>B</option><option ${agent.groupe==='C'?'selected':''}>C</option><option ${agent.groupe==='D'?'selected':''}>D</option><option ${agent.groupe==='E'?'selected':''}>E</option></select></div>
+                    <div class="form-group"><label>Téléphone</label><input type="tel" id="editTel" value="${agent.tel || ''}"></div>
+                    <div class="form-group"><label>Poste</label><input type="text" id="editPoste" value="${agent.poste || ''}"></div>
+                    <div class="form-group"><label>Matricule</label><input type="text" id="editMatricule" value="${agent.matricule || ''}"></div>
+                    <div class="form-group"><label>Statut</label><select id="editStatut"><option ${agent.statut==='actif'?'selected':''}>actif</option><option ${agent.statut==='inactif'?'selected':''}>inactif</option></select></div>
+                </form>
             `;
-            
-            openPopup("🔄 Échanger les Shifts", html, `
-                <button class="btn btn-primary" onclick="executeShiftExchange()">🔄 Exécuter l'échange</button>
+            openPopup(`✏️ Modifier ${code}`, html, `
+                <button class="btn btn-primary" onclick="updateAgent('${code}')">💾 Enregistrer</button>
                 <button class="btn btn-secondary" onclick="closePopup()">Annuler</button>
             `);
-            
-            setTimeout(() => {
-                const today = new Date().toISOString().split('T')[0];
-                document.getElementById('exchangeDate1').value = today;
-                document.getElementById('exchangeDate2').value = today;
-                updateExchangeShiftInfo();
-            }, 100);
         }
         
-        function updateExchangeShiftInfo() {
-            const agent1 = document.getElementById('exchangeAgent1')?.value;
-            const date1 = document.getElementById('exchangeDate1')?.value;
-            const agent2 = document.getElementById('exchangeAgent2')?.value;
-            const date2 = document.getElementById('exchangeDate2')?.value;
-            
-            if (agent1 && date1) {
-                const shift1 = getShiftForAgent(agent1, date1);
-                document.getElementById('shift1Value').innerHTML = `<span style="background:${SHIFT_COLORS[shift1]}; padding:2px 8px; border-radius:12px;">${shift1} - ${SHIFT_LABELS[shift1]}</span>`;
-            }
-            if (agent2 && date2) {
-                const shift2 = getShiftForAgent(agent2, date2);
-                document.getElementById('shift2Value').innerHTML = `<span style="background:${SHIFT_COLORS[shift2]}; padding:2px 8px; border-radius:12px;">${shift2} - ${SHIFT_LABELS[shift2]}</span>`;
-            }
-        }
-        
-        function executeShiftExchange() {
-            const agent1 = document.getElementById('exchangeAgent1').value;
-            const date1 = document.getElementById('exchangeDate1').value;
-            const agent2 = document.getElementById('exchangeAgent2').value;
-            const date2 = document.getElementById('exchangeDate2').value;
-            const reason = document.getElementById('exchangeReason').value;
-            
-            const shift1 = getShiftForAgent(agent1, date1);
-            const shift2 = getShiftForAgent(agent2, date2);
-            
-            const monthKey1 = date1.substring(0, 7);
-            const monthKey2 = date2.substring(0, 7);
-            
-            if (!planningData[monthKey1]) planningData[monthKey1] = {};
-            if (!planningData[monthKey1][agent1]) planningData[monthKey1][agent1] = {};
-            if (!planningData[monthKey2]) planningData[monthKey2] = {};
-            if (!planningData[monthKey2][agent2]) planningData[monthKey2][agent2] = {};
-            
-            planningData[monthKey1][agent1][date1] = {
-                shift: shift2,
-                type: 'echange',
-                exchanged_with: agent2,
-                exchange_date: date2,
-                reason: reason,
-                exchanged_at: new Date().toISOString()
+        function updateAgent(code) {
+            const idx = agents.findIndex(a => a.code === code);
+            if (idx === -1) return;
+            agents[idx] = { ...agents[idx],
+                nom: document.getElementById('editNom').value,
+                prenom: document.getElementById('editPrenom').value,
+                groupe: document.getElementById('editGroupe').value,
+                tel: document.getElementById('editTel').value,
+                poste: document.getElementById('editPoste').value,
+                matricule: document.getElementById('editMatricule').value,
+                statut: document.getElementById('editStatut').value
             };
-            
-            planningData[monthKey2][agent2][date2] = {
-                shift: shift1,
-                type: 'echange',
-                exchanged_with: agent1,
-                exchange_date: date1,
-                reason: reason,
-                exchanged_at: new Date().toISOString()
-            };
-            
-            shiftHistory.push({
-                type: 'echange',
-                agent1: agent1, date1: date1, shift1_before: shift1,
-                agent2: agent2, date2: date2, shift2_before: shift2,
-                reason: reason, exchanged_at: new Date().toISOString()
-            });
-            
             saveToLocalStorage();
-            showSnackbar(`✅ Échange effectué entre ${agent1} et ${agent2}`);
+            showSnackbar(`✅ Agent ${code} modifié`);
             closePopup();
+            displayAgentsList();
         }
         
-        // ==================== PLANNING AVEC JOURS FÉRIÉS ====================
+        function deleteAgent(code) {
+            if (confirm(`Supprimer l'agent ${code} ?`)) {
+                agents = agents.filter(a => a.code !== code);
+                saveToLocalStorage();
+                showSnackbar(`✅ Agent ${code} supprimé`);
+                displayAgentsList();
+            }
+        }
+        
+        // ==================== PLANNING ====================
         function showPlanningMenu() {
             const today = new Date();
             const currentMonth = today.getMonth() + 1;
@@ -536,33 +492,22 @@
                 <div>
                     <h3>📅 Gestion du Planning</h3>
                     <div class="form-group"><label>Mois</label>
-                        <select id="planMonth">
-                            ${Array.from({length:12}, (_,i) => `<option value="${i+1}" ${i+1===currentMonth?'selected':''}>${new Date(2025,i,1).toLocaleString('fr-FR',{month:'long'})}</option>`).join('')}
-                        </select>
+                        <select id="planMonth">${Array.from({length:12}, (_,i) => `<option value="${i+1}" ${i+1===currentMonth?'selected':''}>${new Date(2025,i,1).toLocaleString('fr-FR',{month:'long'})}</option>`).join('')}</select>
                     </div>
                     <div class="form-group"><label>Année</label><input type="number" id="planYear" value="${currentYear}"></div>
                     <div class="form-group"><label>Type</label>
-                        <select id="planType">
-                            <option value="global">Planning Global</option>
-                            <option value="groupe">Par Groupe</option>
-                            <option value="agent">Par Agent</option>
-                        </select>
+                        <select id="planType"><option value="global">Global</option><option value="groupe">Par Groupe</option><option value="agent">Par Agent</option></select>
                     </div>
                     <div id="planGroupDiv" style="display:none;"><div class="form-group"><label>Groupe</label><select id="planGroup"><option>A</option><option>B</option><option>C</option><option>D</option><option>E</option></select></div></div>
                     <div id="planAgentDiv" style="display:none;"><div class="form-group"><label>Agent</label><select id="planAgent">${agents.filter(a=>a.statut==='actif').map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div></div>
-                    <div class="legend">
-                        ${Object.entries(SHIFT_LABELS).map(([k,v]) => `<div class="legend-item"><div style="width:20px;height:20px;background:${SHIFT_COLORS[k]};border-radius:3px;"></div><span>${k}=${v}</span></div>`).join('')}
-                        <div class="legend-item"><div style="width:20px;height:20px;background:#e74c3c;border-radius:3px;"></div><span>Jours fériés</span></div>
-                    </div>
+                    <div class="legend">${Object.entries(SHIFT_LABELS).map(([k,v]) => `<div class="legend-item"><div style="width:20px;height:20px;background:${SHIFT_COLORS[k]};border-radius:3px;"></div><span>${k}=${v}</span></div>`).join('')}<div class="legend-item"><div style="width:20px;height:20px;background:#e74c3c;border-radius:3px;"></div><span>Jours fériés</span></div></div>
                 </div>
             `;
-            
-            openPopup("📅 Gestion du Planning", html, `
+            openPopup("📅 Planning", html, `
                 <button class="btn btn-primary" onclick="generatePlanning()">📋 Générer</button>
                 <button class="btn btn-warning" onclick="showShiftExchange()">🔄 Échanger Shifts</button>
                 <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
             `);
-            
             document.getElementById('planType').onchange = function() {
                 document.getElementById('planGroupDiv').style.display = this.value === 'groupe' ? 'block' : 'none';
                 document.getElementById('planAgentDiv').style.display = this.value === 'agent' ? 'block' : 'none';
@@ -573,374 +518,364 @@
             const month = parseInt(document.getElementById('planMonth').value);
             const year = parseInt(document.getElementById('planYear').value);
             const type = document.getElementById('planType').value;
-            
-            if (type === 'groupe') {
-                const group = document.getElementById('planGroup').value;
-                showGroupPlanning(group, month, year);
-            } else if (type === 'agent') {
-                const agentCode = document.getElementById('planAgent').value;
-                showAgentPlanning(agentCode, month, year);
-            } else {
-                showGlobalPlanning(month, year);
-            }
+            if (type === 'groupe') showGroupPlanning(document.getElementById('planGroup').value, month, year);
+            else if (type === 'agent') showAgentPlanning(document.getElementById('planAgent').value, month, year);
+            else showGlobalPlanning(month, year);
         }
         
         function showGlobalPlanning(month, year) {
             const activeAgents = agents.filter(a => a.statut === 'actif');
             const daysInMonth = new Date(year, month, 0).getDate();
-            
-            let html = `<h3>📅 Planning Global - ${getMonthName(month)} ${year}</h3>`;
-            html += `<div style="overflow-x:auto;"><table style="font-size:0.7em;"><thead><tr><th>Agent</th>`;
+            let html = `<h3>📅 Planning Global - ${getMonthName(month)} ${year}</h3><div style="overflow-x:auto;"><table style="font-size:0.7em;"><thead><tr><th>Agent</th>`;
             for (let d=1; d<=daysInMonth; d++) {
                 const date = new Date(year, month-1, d);
-                const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                const isHolidayDate = isHoliday(dateStr);
+                const isHolidayDate = isHoliday(`${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`);
                 html += `<th class="${isHolidayDate ? 'holiday' : ''}">${d}<br>${JOURS[date.getDay()]}</th>`;
             }
             html += `</tr></thead><tbody>`;
-            
             activeAgents.forEach(agent => {
                 html += `<tr><td nowrap><strong>${agent.code}</strong><br><small>${agent.nom}</small></td>`;
                 for (let d=1; d<=daysInMonth; d++) {
                     const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
                     const shift = getShiftForAgent(agent.code, dateStr);
-                    const isHolidayDate = isHoliday(dateStr);
-                    html += `<td style="background:${SHIFT_COLORS[shift]}; text-align:center; ${isHolidayDate ? 'opacity:0.8;' : ''}" onclick="showShiftModification('${agent.code}', '${dateStr}', '${shift}')" class="shift-cell">${shift}</td>`;
+                    html += `<td style="background:${SHIFT_COLORS[shift]}; text-align:center;" onclick="showShiftModification('${agent.code}', '${dateStr}', '${shift}')" class="shift-cell">${shift}</td>`;
                 }
                 html += `</tr>`;
             });
             html += `</tbody></table></div>`;
-            
-            html += `<div style="margin-top:15px; padding:10px; background:#34495e; border-radius:8px;">
-                        <h4>📊 Résumé du mois</h4>
-                        <div id="monthlyStats"></div>
-                     </div>`;
-            
             openPopup(`📅 Planning ${getMonthName(month)} ${year}`, html, `
-                <button class="btn btn-warning" onclick="showShiftExchange()">🔄 Échanger Shifts</button>
-                <button class="btn btn-primary" onclick="showPlanningMenu()">📅 Nouveau</button>
+                <button class="btn btn-warning" onclick="showShiftExchange()">🔄 Échanger</button>
                 <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
             `);
-            
-            setTimeout(() => {
-                displayMonthlyStats(activeAgents, month, year);
-            }, 100);
-        }
-        
-        function displayMonthlyStats(agentsList, month, year) {
-            const statsDiv = document.getElementById('monthlyStats');
-            if (!statsDiv) return;
-            
-            let totalShifts = { '1':0, '2':0, '3':0, 'R':0, 'C':0, 'M':0, 'A':0 };
-            let holidayDays = 0;
-            const daysInMonth = new Date(year, month, 0).getDate();
-            
-            for (let d=1; d<=daysInMonth; d++) {
-                const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                if (isHoliday(dateStr)) holidayDays++;
-                
-                agentsList.forEach(agent => {
-                    const shift = getShiftForAgent(agent.code, dateStr);
-                    if (totalShifts[shift] !== undefined) totalShifts[shift]++;
-                });
-            }
-            
-            const totalAssignments = Object.values(totalShifts).reduce((a,b) => a+b, 0);
-            
-            statsDiv.innerHTML = `
-                <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px;">
-                    <div style="background:#2c3e50; padding:8px; border-radius:8px; text-align:center;">
-                        <div style="font-size:1.2em; font-weight:bold; color:#3498db;">${totalShifts['1']}</div>
-                        <div style="font-size:0.7em;">Matin</div>
-                    </div>
-                    <div style="background:#2c3e50; padding:8px; border-radius:8px; text-align:center;">
-                        <div style="font-size:1.2em; font-weight:bold; color:#e74c3c;">${totalShifts['2']}</div>
-                        <div style="font-size:0.7em;">Après-midi</div>
-                    </div>
-                    <div style="background:#2c3e50; padding:8px; border-radius:8px; text-align:center;">
-                        <div style="font-size:1.2em; font-weight:bold; color:#9b59b6;">${totalShifts['3']}</div>
-                        <div style="font-size:0.7em;">Nuit</div>
-                    </div>
-                    <div style="background:#2c3e50; padding:8px; border-radius:8px; text-align:center;">
-                        <div style="font-size:1.2em; font-weight:bold; color:#2ecc71;">${totalShifts['R']}</div>
-                        <div style="font-size:0.7em;">Repos</div>
-                    </div>
-                </div>
-                <div style="margin-top:10px; display:flex; justify-content:space-between;">
-                    <div>📅 Jours fériés: <strong>${holidayDays}</strong></div>
-                    <div>👥 Agents: <strong>${agentsList.length}</strong></div>
-                    <div>📊 Total shifts: <strong>${totalAssignments}</strong></div>
-                </div>
-            `;
         }
         
         function showGroupPlanning(group, month, year) {
             const groupAgents = agents.filter(a => a.groupe === group && a.statut === 'actif');
             if (groupAgents.length === 0) { showSnackbar(`Aucun agent dans groupe ${group}`); return; }
-            
             const daysInMonth = new Date(year, month, 0).getDate();
-            let html = `<h3>📅 Planning Groupe ${group} - ${getMonthName(month)} ${year}</h3>`;
-            html += `<div style="overflow-x:auto;"><table style="font-size:0.7em;"><thead><tr><th>Agent</th>`;
+            let html = `<h3>📅 Planning Groupe ${group} - ${getMonthName(month)} ${year}</h3><div style="overflow-x:auto;"><table style="font-size:0.7em;"><thead><tr><th>Agent</th>`;
             for (let d=1; d<=daysInMonth; d++) {
-                const date = new Date(year, month-1, d);
                 const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                const isHolidayDate = isHoliday(dateStr);
-                html += `<th class="${isHolidayDate ? 'holiday' : ''}">${d}<br>${JOURS[date.getDay()]}</th>`;
+                html += `<th class="${isHoliday(dateStr) ? 'holiday' : ''}">${d}</th>`;
             }
             html += `</tr></thead><tbody>`;
-            
             groupAgents.forEach(agent => {
-                html += `<tr><td nowrap><strong>${agent.code}</strong><br><small>${agent.nom}</small></td>`;
+                html += `<tr><td><strong>${agent.code}</strong><br><small>${agent.nom}</small></td>`;
                 for (let d=1; d<=daysInMonth; d++) {
                     const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
                     const shift = getShiftForAgent(agent.code, dateStr);
-                    const isHolidayDate = isHoliday(dateStr);
-                    html += `<td style="background:${SHIFT_COLORS[shift]}; text-align:center; ${isHolidayDate ? 'opacity:0.8;' : ''}" onclick="showShiftModification('${agent.code}', '${dateStr}', '${shift}')" class="shift-cell">${shift}</td>`;
+                    html += `<td style="background:${SHIFT_COLORS[shift]}; text-align:center;" onclick="showShiftModification('${agent.code}', '${dateStr}', '${shift}')" class="shift-cell">${shift}</td>`;
                 }
                 html += `</tr>`;
             });
             html += `</tbody></table></div>`;
-            
-            openPopup(`📅 Planning Groupe ${group}`, html, `
-                <button class="btn btn-warning" onclick="showShiftExchange()">🔄 Échanger Shifts</button>
-                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
-            `);
+            openPopup(`📅 Planning Groupe ${group}`, html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
         }
         
         function showAgentPlanning(agentCode, month, year) {
             const agent = agents.find(a => a.code === agentCode);
             if (!agent) return;
             const daysInMonth = new Date(year, month, 0).getDate();
-            
-            let html = `<h3>📅 Planning de ${agent.nom} ${agent.prenom}</h3>`;
-            html += `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Jour</th><th>Shift</th><th>Description</th><th>Actions</th></tr></thead><tbody>`;
-            
+            let html = `<h3>📅 Planning de ${agent.nom} ${agent.prenom}</h3><div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Jour</th><th>Shift</th><th>Description</th><th>Action</th></tr></thead><tbody>`;
             for (let d=1; d<=daysInMonth; d++) {
                 const date = new Date(year, month-1, d);
                 const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
                 const shift = getShiftForAgent(agentCode, dateStr);
                 const isHolidayDate = isHoliday(dateStr);
-                const holidayDesc = getHolidayDescription(dateStr);
-                
                 html += `<tr class="${isHolidayDate ? 'holiday' : ''}">
                             <td>${dateStr}</td>
-                            <td class="${date.getDay() === 0 || date.getDay() === 6 ? 'weekend' : ''}">${JOURS[date.getDay()]}</td>
+                            <td class="${date.getDay()===0||date.getDay()===6?'weekend':''}">${JOURS[date.getDay()]}</td>
                             <td style="background:${SHIFT_COLORS[shift]}; text-align:center;">${shift}</td>
-                            <td>${SHIFT_LABELS[shift]}${isHolidayDate ? ` (Férié: ${holidayDesc})` : ''}</td>
+                            <td>${SHIFT_LABELS[shift]}${isHolidayDate ? ` (Férié: ${getHolidayDescription(dateStr)})` : ''}</td>
                             <td><button class="action-btn action-edit" onclick="showShiftModification('${agentCode}', '${dateStr}', '${shift}')">✏️</button></td>
-                         </tr>`;
+                          </tr>`;
             }
             html += `</tbody></table></div>`;
-            
-            const stats = calculateAgentStatsDetailed(agentCode, month, year);
-            html += `<div style="margin-top:15px; padding:10px; background:#34495e; border-radius:8px;">
-                        <h4>📊 Statistiques du mois</h4>
-                        <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">
-                            <div><strong>Matin:</strong> ${stats.matin}</div>
-                            <div><strong>Après-midi:</strong> ${stats.apres}</div>
-                            <div><strong>Nuit:</strong> ${stats.nuit}</div>
-                            <div><strong>Repos:</strong> ${stats.repos}</div>
-                            <div><strong>Congés:</strong> ${stats.conges}</div>
-                            <div><strong>Jours fériés:</strong> ${stats.holidays}</div>
-                            <div><strong>Jours travaillés:</strong> ${stats.travailles}</div>
-                            <div><strong>Taux présence:</strong> ${stats.tauxPresence}%</div>
-                        </div>
-                     </div>`;
-            
-            openPopup(`📅 Planning ${agent.code}`, html, `
-                <button class="btn btn-warning" onclick="showShiftExchange()">🔄 Échanger Shifts</button>
-                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
+            openPopup(`📅 Planning ${agent.code}`, html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        function showShiftModification(agentCode, dateStr, currentShift) {
+            const agent = agents.find(a => a.code === agentCode);
+            let html = `<div><p><strong>Agent:</strong> ${agent.nom} ${agent.prenom}</p><p><strong>Date:</strong> ${dateStr}</p><p><strong>Shift actuel:</strong> <span style="background:${SHIFT_COLORS[currentShift]}; padding:2px 8px; border-radius:12px;">${currentShift} - ${SHIFT_LABELS[currentShift]}</span></p>
+                        <div class="form-group"><label>Nouveau shift</label><select id="newShiftSelect">${Object.entries(SHIFT_LABELS).map(([k,v]) => `<option value="${k}" ${k===currentShift?'selected':''}>${k} - ${v}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Raison</label><textarea id="shiftReason" rows="2"></textarea></div></div>`;
+            openPopup(`✏️ Modifier Shift`, html, `
+                <button class="btn btn-primary" onclick="saveShiftModification('${agentCode}', '${dateStr}')">💾 Enregistrer</button>
+                <button class="btn btn-secondary" onclick="closePopup()">Annuler</button>
             `);
         }
         
-        function calculateAgentStatsDetailed(agentCode, month, year) {
-            let matin=0, apres=0, nuit=0, repos=0, conges=0, holidays=0;
-            const daysInMonth = new Date(year, month, 0).getDate();
-            
-            for (let d=1; d<=daysInMonth; d++) {
-                const dateStr = `${year}-${month.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                const shift = getShiftForAgent(agentCode, dateStr);
-                if (shift === '1') matin++;
-                else if (shift === '2') apres++;
-                else if (shift === '3') nuit++;
-                else if (shift === 'R') repos++;
-                else if (shift === 'C' || shift === 'M' || shift === 'A') conges++;
-                
-                if (isHoliday(dateStr)) holidays++;
-            }
-            const travailles = matin + apres + nuit;
-            const totalJours = daysInMonth;
-            const tauxPresence = totalJours > 0 ? ((travailles/totalJours)*100).toFixed(1) : 0;
-            
-            return { matin, apres, nuit, repos, conges, holidays, travailles, totalJours, tauxPresence };
+        function saveShiftModification(agentCode, dateStr) {
+            const newShift = document.getElementById('newShiftSelect').value;
+            const reason = document.getElementById('shiftReason').value;
+            const oldShift = getShiftForAgent(agentCode, dateStr);
+            const monthKey = dateStr.substring(0,7);
+            if (!planningData[monthKey]) planningData[monthKey] = {};
+            if (!planningData[monthKey][agentCode]) planningData[monthKey][agentCode] = {};
+            planningData[monthKey][agentCode][dateStr] = { shift: newShift, type: 'modification', old_shift: oldShift, reason, modified_at: new Date().toISOString() };
+            shiftHistory.push({ agent_code: agentCode, date: dateStr, old_shift: oldShift, new_shift: newShift, reason });
+            saveToLocalStorage();
+            showSnackbar(`✅ Shift modifié: ${oldShift} → ${newShift}`);
+            closePopup();
         }
         
-        // ==================== STATISTIQUES AVANCÉES ====================
+        function showShiftExchange() {
+            const activeAgents = agents.filter(a => a.statut === 'actif');
+            let html = `<div><h3>🔄 Échanger les Shifts</h3><div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                        <div><h4>Agent 1</h4><div class="form-group"><label>Agent</label><select id="exchangeAgent1">${activeAgents.map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Date</label><input type="date" id="exchangeDate1" onchange="updateExchangeInfo()"></div><div id="shiftInfo1" style="background:#34495e; padding:10px; border-radius:8px;">Shift: <span id="shift1Val">-</span></div></div>
+                        <div><h4>Agent 2</h4><div class="form-group"><label>Agent</label><select id="exchangeAgent2">${activeAgents.map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Date</label><input type="date" id="exchangeDate2" onchange="updateExchangeInfo()"></div><div id="shiftInfo2" style="background:#34495e; padding:10px; border-radius:8px;">Shift: <span id="shift2Val">-</span></div></div></div>
+                        <div class="form-group"><label>Raison</label><textarea id="exchangeReason" rows="2"></textarea></div></div>`;
+            openPopup("🔄 Échanger Shifts", html, `
+                <button class="btn btn-primary" onclick="executeShiftExchange()">🔄 Exécuter</button>
+                <button class="btn btn-secondary" onclick="closePopup()">Annuler</button>
+            `);
+            setTimeout(() => { const today = new Date().toISOString().split('T')[0]; document.getElementById('exchangeDate1').value = today; document.getElementById('exchangeDate2').value = today; updateExchangeInfo(); }, 100);
+        }
+        
+        function updateExchangeInfo() {
+            const a1 = document.getElementById('exchangeAgent1')?.value, d1 = document.getElementById('exchangeDate1')?.value;
+            const a2 = document.getElementById('exchangeAgent2')?.value, d2 = document.getElementById('exchangeDate2')?.value;
+            if (a1 && d1) { const s1 = getShiftForAgent(a1, d1); document.getElementById('shift1Val').innerHTML = `<span style="background:${SHIFT_COLORS[s1]}; padding:2px 8px; border-radius:12px;">${s1} - ${SHIFT_LABELS[s1]}</span>`; }
+            if (a2 && d2) { const s2 = getShiftForAgent(a2, d2); document.getElementById('shift2Val').innerHTML = `<span style="background:${SHIFT_COLORS[s2]}; padding:2px 8px; border-radius:12px;">${s2} - ${SHIFT_LABELS[s2]}</span>`; }
+        }
+        
+        function executeShiftExchange() {
+            const a1 = document.getElementById('exchangeAgent1').value, d1 = document.getElementById('exchangeDate1').value;
+            const a2 = document.getElementById('exchangeAgent2').value, d2 = document.getElementById('exchangeDate2').value;
+            const reason = document.getElementById('exchangeReason').value;
+            const s1 = getShiftForAgent(a1, d1), s2 = getShiftForAgent(a2, d2);
+            const mk1 = d1.substring(0,7), mk2 = d2.substring(0,7);
+            if (!planningData[mk1]) planningData[mk1] = {};
+            if (!planningData[mk1][a1]) planningData[mk1][a1] = {};
+            if (!planningData[mk2]) planningData[mk2] = {};
+            if (!planningData[mk2][a2]) planningData[mk2][a2] = {};
+            planningData[mk1][a1][d1] = { shift: s2, type: 'echange', exchanged_with: a2, reason };
+            planningData[mk2][a2][d2] = { shift: s1, type: 'echange', exchanged_with: a1, reason };
+            saveToLocalStorage();
+            showSnackbar(`✅ Échange entre ${a1} et ${a2}`);
+            closePopup();
+        }
+        
+        // ==================== STATISTIQUES ====================
         function showStatistics() {
             const actifs = agents.filter(a => a.statut === 'actif').length;
-            const inactifs = agents.filter(a => a.statut === 'inactif').length;
             const groupes = {};
             agents.forEach(a => { groupes[a.groupe] = (groupes[a.groupe] || 0) + 1; });
-            
-            const today = new Date();
-            const currentYear = today.getFullYear();
-            let totalShiftsYear = { '1':0, '2':0, '3':0, 'R':0, 'C':0, 'M':0, 'A':0 };
-            let totalHolidaysYear = 0;
-            
-            for (let m=1; m<=12; m++) {
-                const daysInMonth = new Date(currentYear, m, 0).getDate();
-                for (let d=1; d<=daysInMonth; d++) {
-                    const dateStr = `${currentYear}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                    if (isHoliday(dateStr)) totalHolidaysYear++;
-                    
-                    agents.filter(a => a.statut === 'actif').forEach(agent => {
-                        const shift = getShiftForAgent(agent.code, dateStr);
-                        if (totalShiftsYear[shift] !== undefined) totalShiftsYear[shift]++;
-                    });
-                }
-            }
-            
-            let html = `
-                <div>
-                    <h3>📊 Statistiques Globales ${currentYear}</h3>
-                    <div class="stats-grid">
-                        <div class="stat-card"><div class="stat-number">${actifs}</div><div>Agents Actifs</div></div>
-                        <div class="stat-card"><div class="stat-number">${inactifs}</div><div>Agents Inactifs</div></div>
-                        <div class="stat-card"><div class="stat-number">${agents.length}</div><div>Total Agents</div></div>
-                        <div class="stat-card"><div class="stat-number">${Object.keys(groupes).length}</div><div>Groupes</div></div>
-                    </div>
-                    
-                    <h4>📅 Répartition annuelle des shifts</h4>
-                    <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:15px 0;">
-                        <div style="background:#3498db; padding:10px; border-radius:8px; text-align:center;">
-                            <div style="font-size:1.5em; font-weight:bold;">${totalShiftsYear['1']}</div>
-                            <div>Matin</div>
-                        </div>
-                        <div style="background:#e74c3c; padding:10px; border-radius:8px; text-align:center;">
-                            <div style="font-size:1.5em; font-weight:bold;">${totalShiftsYear['2']}</div>
-                            <div>Après-midi</div>
-                        </div>
-                        <div style="background:#9b59b6; padding:10px; border-radius:8px; text-align:center;">
-                            <div style="font-size:1.5em; font-weight:bold;">${totalShiftsYear['3']}</div>
-                            <div>Nuit</div>
-                        </div>
-                        <div style="background:#2ecc71; padding:10px; border-radius:8px; text-align:center;">
-                            <div style="font-size:1.5em; font-weight:bold;">${totalShiftsYear['R']}</div>
-                            <div>Repos</div>
-                        </div>
-                    </div>
-                    
-                    <h4>👥 Répartition par Groupe</h4>
-                    ${Object.entries(groupes).map(([g,c]) => `<div><div style="display:flex;justify-content:space-between"><span>Groupe ${g}</span><span>${c} agents</span></div><div class="progress-bar"><div class="progress-fill" style="width:${(c/agents.length)*100}%"></div></div></div>`).join('')}
-                    
-                    <div style="margin-top:15px; padding:10px; background:#34495e; border-radius:8px;">
-                        <h4>🎉 Jours fériés ${currentYear}</h4>
-                        <div>Total: <strong>${totalHolidaysYear}</strong> jours fériés</div>
-                        <div style="margin-top:5px; font-size:0.8em;">${holidays.filter(h => h.date.startsWith(currentYear)).map(h => h.description).join(', ')}</div>
-                    </div>
-                </div>
-            `;
-            
-            openPopup("📊 Statistiques", html, `
-                <button class="btn btn-primary" onclick="showAgentRanking()">🏆 Classement Agents</button>
-                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
-            `);
+            let html = `<div><h3>📊 Statistiques</h3><div class="stats-grid"><div class="stat-card"><div class="stat-number">${actifs}</div><div>Actifs</div></div><div class="stat-card"><div class="stat-number">${agents.length}</div><div>Total</div></div></div><h4>Groupes</h4>${Object.entries(groupes).map(([g,c]) => `<div>Groupe ${g}: ${c} agents<div class="progress-bar"><div class="progress-fill" style="width:${(c/agents.length)*100}%"></div></div></div>`).join('')}</div>`;
+            openPopup("📊 Statistiques", html, `<button class="btn btn-primary" onclick="showAgentRanking()">🏆 Classement</button><button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
         }
         
         function showAgentRanking() {
-            const today = new Date();
-            const currentYear = today.getFullYear();
-            
-            const ranking = agents.filter(a => a.statut === 'actif').map(agent => {
+            const ranking = agents.filter(a=>a.statut==='actif').map(a => {
                 let travailles = 0;
-                for (let m=1; m<=12; m++) {
-                    const daysInMonth = new Date(currentYear, m, 0).getDate();
-                    for (let d=1; d<=daysInMonth; d++) {
-                        const dateStr = `${currentYear}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-                        const shift = getShiftForAgent(agent.code, dateStr);
-                        if (shift === '1' || shift === '2' || shift === '3') travailles++;
-                    }
+                for(let m=1;m<=12;m++) for(let d=1;d<=new Date(2025,m,0).getDate();d++) {
+                    const shift = getShiftForAgent(a.code, `2025-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`);
+                    if(shift==='1'||shift==='2'||shift==='3') travailles++;
                 }
-                return { ...agent, travailles };
-            }).sort((a,b) => b.travailles - a.travailles);
-            
-            let html = `<h3>🏆 Classement des Agents ${currentYear}</h3><table><thead><tr><th>Rang</th><th>Agent</th><th>Groupe</th><th>Jours travaillés</th></tr></thead><tbody>`;
-            ranking.forEach((a, idx) => {
-                const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx+1}`;
-                html += `<tr><td>${medal}</td><td><strong>${a.nom} ${a.prenom}</strong><br><small>${a.code}</small></td><td>${a.groupe}</td><td style="color:#27ae60; font-weight:bold;">${a.travailles} j</td></tr>`;
-            });
-            html += `</tbody></table>`;
-            
+                return {...a, travailles};
+            }).sort((a,b)=>b.travailles - a.travailles);
+            let html = `<h3>🏆 Classement 2025</h3><table><thead><tr><th>Rang</th><th>Agent</th><th>Jours</th></tr></thead><tbody>${ranking.map((a,i)=>`<tr><td>${i+1}</td><td>${a.nom} ${a.prenom}</td><td style="color:#27ae60;">${a.travailles} j</td></tr>`).join('')}</tbody></table>`;
             openPopup("🏆 Classement", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        // ==================== CONGÉS ====================
+        function showLeavesMenu() {
+            let html = `<div><h3>🏖️ Ajouter Congé</h3><div class="form-group"><label>Agent</label><select id="leaveAgent">${agents.filter(a=>a.statut==='actif').map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Type</label><select id="leaveType"><option value="C">Congé</option><option value="M">Maladie</option><option value="A">Autre</option></select></div>
+                        <div class="form-group"><label>Date</label><input type="date" id="leaveDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                        <div class="form-group"><label>Commentaire</label><textarea id="leaveComment" rows="2"></textarea></div>
+                        <button class="btn btn-primary" style="width:100%; margin-top:10px;" onclick="addLeave()">💾 Enregistrer</button>
+                        <hr><h4>📋 Congés existants</h4><div id="leavesList"></div></div>`;
+            openPopup("🏖️ Congés", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+            refreshLeavesList();
+        }
+        
+        function addLeave() {
+            const agentCode = document.getElementById('leaveAgent').value;
+            const type = document.getElementById('leaveType').value;
+            const date = document.getElementById('leaveDate').value;
+            const comment = document.getElementById('leaveComment').value;
+            const monthKey = date.substring(0,7);
+            if (!planningData[monthKey]) planningData[monthKey] = {};
+            if (!planningData[monthKey][agentCode]) planningData[monthKey][agentCode] = {};
+            planningData[monthKey][agentCode][date] = { shift: type, type: 'absence', comment };
+            leaves.push({ agent_code: agentCode, date, type, comment, created_at: new Date().toISOString() });
+            saveToLocalStorage();
+            showSnackbar(`✅ ${SHIFT_LABELS[type]} ajouté`);
+            refreshLeavesList();
+        }
+        
+        function refreshLeavesList() {
+            const container = document.getElementById('leavesList');
+            if (!container) return;
+            const items = [];
+            Object.keys(planningData).forEach(mk => {
+                Object.keys(planningData[mk]).forEach(ac => {
+                    Object.keys(planningData[mk][ac]).forEach(d => {
+                        const r = planningData[mk][ac][d];
+                        if (['C','M','A'].includes(r.shift)) items.push({ ac, d, t: r.shift, c: r.comment });
+                    });
+                });
+            });
+            if (items.length === 0) container.innerHTML = '<p>Aucun congé</p>';
+            else container.innerHTML = `<table style="width:100%; font-size:0.8em;"><thead><tr><th>Agent</th><th>Date</th><th>Type</th></tr></thead><tbody>${items.map(i => `<tr><td>${i.ac}</td><td>${i.d}</td><td>${SHIFT_LABELS[i.t]}</td></tr>`).join('')}</tbody></table>`;
+        }
+        
+        // ==================== CODES PANIQUE ====================
+        function showPanicCodesMenu() {
+            let html = `<div><h3>🚨 Codes Panique</h3><div class="form-group"><label>Agent</label><select id="panicAgent">${agents.filter(a=>a.statut==='actif').map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Code</label><input type="text" id="panicCode" placeholder="Ex: 1234"></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addPanicCode()">➕ Ajouter</button>
+                        <hr><h4>📋 Codes existants</h4><div id="panicList">${panicCodes.map(p=>`<div style="display:flex; justify-content:space-between; padding:8px;"><span>${p.agent_code}: <strong style="color:#e74c3c;">${p.code}</strong></span><button class="action-btn action-delete" onclick="deletePanicCode('${p.agent_code}')">🗑️</button></div>`).join('') || '<p>Aucun code</p>'}</div></div>`;
+            openPopup("🚨 Codes Panique", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        function addPanicCode() {
+            const agentCode = document.getElementById('panicAgent').value;
+            const code = document.getElementById('panicCode').value;
+            if (!code) { showSnackbar("Code obligatoire"); return; }
+            panicCodes.push({ agent_code: agentCode, code, created_at: new Date().toISOString().split('T')[0] });
+            saveToLocalStorage();
+            showSnackbar(`✅ Code ajouté`);
+            showPanicCodesMenu();
+        }
+        
+        function deletePanicCode(agentCode) {
+            panicCodes = panicCodes.filter(p => p.agent_code !== agentCode);
+            saveToLocalStorage();
+            showPanicCodesMenu();
+        }
+        
+        // ==================== RADIOS ====================
+        function showRadiosMenu() {
+            let html = `<div><h3>📻 Radios</h3><div class="form-group"><label>ID</label><input type="text" id="radioId" placeholder="RAD001"></div>
+                        <div class="form-group"><label>Modèle</label><input type="text" id="radioModele"></div>
+                        <div class="form-group"><label>Statut</label><select id="radioStatut"><option>DISPONIBLE</option><option>ATTRIBUEE</option><option>HS</option></select></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addRadio()">➕ Ajouter</button>
+                        <hr><h4>📋 Liste</h4><div id="radioList">${radios.map(r=>`<div style="display:flex; justify-content:space-between; padding:8px;"><span>${r.id} - ${r.modele}</span><span style="background:${r.statut==='DISPONIBLE'?'#27ae60':r.statut==='ATTRIBUEE'?'#f39c12':'#e74c3c'}; padding:2px 8px; border-radius:12px;">${r.statut}</span></div>`).join('') || '<p>Aucune radio</p>'}</div></div>`;
+            openPopup("📻 Radios", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        function addRadio() {
+            const id = document.getElementById('radioId').value.toUpperCase();
+            const modele = document.getElementById('radioModele').value;
+            const statut = document.getElementById('radioStatut').value;
+            if (!id || !modele) { showSnackbar("ID et Modèle obligatoires"); return; }
+            radios.push({ id, modele, statut });
+            saveToLocalStorage();
+            showSnackbar(`✅ Radio ${id} ajoutée`);
+            showRadiosMenu();
+        }
+        
+        // ==================== HABILLEMENT ====================
+        function showUniformMenu() {
+            let html = `<div><h3>👔 Habillement</h3><div class="form-group"><label>Agent</label><select id="uniformAgent">${agents.filter(a=>a.statut==='actif').map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Chemise</label><input type="text" id="chemiseTaille" placeholder="S/M/L/XL"></div>
+                        <div class="form-group"><label>Pantalon</label><input type="text" id="pantalonTaille" placeholder="38/40/42"></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addUniform()">💾 Enregistrer</button>
+                        <hr><h4>📋 Liste</h4><div id="uniformList">${uniforms.map(u=>`<div style="padding:8px;">${u.agent_code}: Chemise ${u.chemise_taille}, Pantalon ${u.pantalon_taille}</div>`).join('') || '<p>Aucun enregistrement</p>'}</div></div>`;
+            openPopup("👔 Habillement", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        function addUniform() {
+            const agentCode = document.getElementById('uniformAgent').value;
+            const chemise = document.getElementById('chemiseTaille').value;
+            const pantalon = document.getElementById('pantalonTaille').value;
+            if (!chemise || !pantalon) { showSnackbar("Tailles obligatoires"); return; }
+            const existing = uniforms.findIndex(u => u.agent_code === agentCode);
+            const uniform = { agent_code: agentCode, chemise_taille: chemise, pantalon_taille: pantalon, date: new Date().toISOString().split('T')[0] };
+            if (existing !== -1) uniforms[existing] = uniform;
+            else uniforms.push(uniform);
+            saveToLocalStorage();
+            showSnackbar(`✅ Habillement enregistré`);
+            showUniformMenu();
+        }
+        
+        // ==================== AVERTISSEMENTS ====================
+        function showWarningsMenu() {
+            let html = `<div><h3>⚠️ Avertissements</h3><div class="form-group"><label>Agent</label><select id="warnAgent">${agents.filter(a=>a.statut==='actif').map(a=>`<option value="${a.code}">${a.nom} ${a.prenom}</option>`).join('')}</select></div>
+                        <div class="form-group"><label>Type</label><select id="warnType"><option>ORAL</option><option>ECRIT</option><option>MISE_A_PIED</option></select></div>
+                        <div class="form-group"><label>Date</label><input type="date" id="warnDate" value="${new Date().toISOString().split('T')[0]}"></div>
+                        <div class="form-group"><label>Description</label><textarea id="warnDesc" rows="2"></textarea></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addWarning()">⚠️ Ajouter</button>
+                        <hr><h4>📋 Liste</h4><div id="warnList">${warnings.map(w=>`<div style="padding:8px;">${w.agent_code}: ${w.type} - ${w.date}</div>`).join('') || '<p>Aucun avertissement</p>'}</div></div>`;
+            openPopup("⚠️ Avertissements", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
+        }
+        
+        function addWarning() {
+            const agentCode = document.getElementById('warnAgent').value;
+            const type = document.getElementById('warnType').value;
+            const date = document.getElementById('warnDate').value;
+            const desc = document.getElementById('warnDesc').value;
+            if (!desc) { showSnackbar("Description obligatoire"); return; }
+            warnings.push({ id: 'W'+Date.now(), agent_code: agentCode, type, date, description: desc, status: 'active', created_at: new Date().toISOString() });
+            saveToLocalStorage();
+            showSnackbar(`✅ Avertissement ajouté`);
+            showWarningsMenu();
         }
         
         // ==================== JOURS FÉRIÉS ====================
         function showHolidaysMenu() {
-            let html = `
-                <div>
-                    <h3>🎉 Gestion des Jours Fériés</h3>
-                    <div class="form-group"><label>Date</label><input type="date" id="holidayDate"></div>
-                    <div class="form-group"><label>Description</label><input type="text" id="holidayDesc" placeholder="Ex: Nouvel An"></div>
-                    <h4 style="margin-top:20px;">📋 Jours Fériés existants</h4>
-                    <div id="holidaysList" style="max-height:200px; overflow-y:auto;">
-                        ${holidays.map(h => `<div style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #34495e;"><span>${h.date} - ${h.description}</span><button class="action-btn action-delete" onclick="deleteHoliday('${h.date}')">🗑️</button></div>`).join('')}
-                    </div>
-                </div>
-            `;
-            
-            openPopup("🎉 Jours Fériés", html, `
-                <button class="btn btn-primary" onclick="addHoliday()">➕ Ajouter</button>
-                <button class="btn btn-secondary" onclick="closePopup()">Fermer</button>
-            `);
+            let html = `<div><h3>🎉 Jours Fériés</h3><div class="form-group"><label>Date</label><input type="date" id="holidayDate"></div>
+                        <div class="form-group"><label>Description</label><input type="text" id="holidayDesc"></div>
+                        <button class="btn btn-primary" style="width:100%;" onclick="addHoliday()">➕ Ajouter</button>
+                        <hr><h4>📋 Liste</h4><div id="holidaysList">${holidays.map(h=>`<div style="display:flex; justify-content:space-between; padding:8px;"><span>${h.date} - ${h.description}</span><button class="action-btn action-delete" onclick="deleteHoliday('${h.date}')">🗑️</button></div>`).join('')}</div></div>`;
+            openPopup("🎉 Jours Fériés", html, `<button class="btn btn-secondary" onclick="closePopup()">Fermer</button>`);
         }
         
         function addHoliday() {
             const date = document.getElementById('holidayDate').value;
             const desc = document.getElementById('holidayDesc').value;
             if (!date || !desc) { showSnackbar("Date et description obligatoires"); return; }
-            if (!holidays.find(h => h.date === date)) {
-                holidays.push({ date, description: desc });
-                saveToLocalStorage();
-                showSnackbar(`✅ Jour férié ajouté: ${date}`);
-                showHolidaysMenu();
-            } else {
-                showSnackbar("⚠️ Cette date existe déjà");
-            }
+            if (!holidays.find(h => h.date === date)) holidays.push({ date, description: desc });
+            saveToLocalStorage();
+            showSnackbar(`✅ Jour férié ajouté`);
+            showHolidaysMenu();
         }
         
         function deleteHoliday(date) {
             holidays = holidays.filter(h => h.date !== date);
             saveToLocalStorage();
-            showSnackbar(`✅ Jour férié supprimé: ${date}`);
             showHolidaysMenu();
         }
         
-        // ==================== AUTRES FONCTIONS ====================
-        function displayAgentsList() { /* Fonction existante */ }
-        function showAgentDetails(code) { /* Fonction existante */ }
-        function showAddAgentForm() { /* Fonction existante */ }
-        function addAgent() { /* Fonction existante */ }
-        function showEditAgent(code) { /* Fonction existante */ }
-        function updateAgent(code) { /* Fonction existante */ }
-        function deleteAgent(code) { /* Fonction existante */ }
-        function showLeavesMenu() { /* Fonction existante */ }
-        function showPanicCodesMenu() { /* Fonction existante */ }
-        function showRadiosMenu() { /* Fonction existante */ }
-        function showUniformMenu() { /* Fonction existante */ }
-        function showWarningsMenu() { /* Fonction existante */ }
-        function exportAgentsCSV() { /* Fonction existante */ }
-        function backupData() { /* Fonction existante */ }
-        function clearAllData() { if(confirm("Supprimer toutes les données ?")) { localStorage.clear(); location.reload(); } }
+        // ==================== EXPORTATIONS ====================
+        function exportAgentsCSV() {
+            let csv = "Code;Nom;Prénom;Groupe;Téléphone;Poste;Statut\n" + agents.map(a => `${a.code};${a.nom};${a.prenom};${a.groupe};${a.tel||''};${a.poste||''};${a.statut}`).join("\n");
+            downloadFile(csv, `agents_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
+            showSnackbar("✅ Export agents terminé");
+        }
         
-        function getMonthName(month) { return ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][month-1]; }
+        function backupData() {
+            const backup = { agents, planningData, holidays, panicCodes, radios, uniforms, warnings, leaves, shiftHistory };
+            downloadFile(JSON.stringify(backup, null, 2), `backup_${new Date().toISOString().split('T')[0]}.json`, 'application/json');
+            showSnackbar("💾 Sauvegarde effectuée");
+        }
         
+        function downloadFile(content, filename, type) {
+            const blob = new Blob(["\uFEFF" + content], { type: `${type};charset=utf-8;` });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+        
+        function clearAllData() {
+            if (confirm("⚠️ SUPPRIMER TOUTES LES DONNÉES ?")) { localStorage.clear(); location.reload(); }
+        }
+        
+        function getMonthName(m) { return ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][m-1]; }
+        
+        // ==================== MENU PRINCIPAL ====================
         function showMainMenu() {
             const mainContent = document.getElementById('main-content');
             document.getElementById('sub-title').textContent = "Menu Principal";
-            
             mainContent.innerHTML = `
                 <button class="menu-button" onclick="displayAgentsList()">👥 Gestion des Agents</button>
-                <button class="menu-button success" onclick="showPlanningMenu()">📅 Planning</button>
+                <button class="menu-button success" onclick="showPlanningMenu()">📅 Planning & Shifts</button>
                 <button class="menu-button" onclick="showStatistics()">📊 Statistiques</button>
                 <button class="menu-button warning" onclick="showLeavesMenu()">🏖️ Congés & Absences</button>
                 <button class="menu-button" onclick="showPanicCodesMenu()">🚨 Codes Panique</button>
@@ -957,9 +892,8 @@
         function init() {
             loadFromLocalStorage();
             console.log(`✅ ${agents.length} agents chargés`);
-            console.log(`📊 ${Object.keys(planningData).length} plannings chargés`);
             console.log(`🎉 ${holidays.length} jours fériés`);
-            console.log(`🔄 ${shiftHistory.length} modifications de shift`);
+            console.log(`📻 ${radios.length} radios`);
             showMainMenu();
         }
         
